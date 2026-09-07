@@ -1,7 +1,6 @@
 from flask import Flask, render_template, request
+from transformers import pipeline
 import os
-
-# Reduce CPU thread usage
 
 app = Flask(__name__)
 
@@ -18,9 +17,6 @@ os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 # ==============================
 # AI EMOTION MODEL
 # ==============================
-
-# Model is NOT loaded when the server starts.
-# It will load only when audio analysis is requested.
 
 print("Emotion model will load when needed...")
 
@@ -81,15 +77,9 @@ def chatbot():
     text = message.lower()
 
 
-    # HAPPY
     if any(
         word in text
-        for word in [
-            "happy",
-            "good",
-            "great",
-            "excited"
-        ]
+        for word in ["happy", "good", "great", "excited"]
     ):
 
         reply = (
@@ -98,15 +88,9 @@ def chatbot():
         )
 
 
-    # SAD
     elif any(
         word in text
-        for word in [
-            "sad",
-            "upset",
-            "bad",
-            "lonely"
-        ]
+        for word in ["sad", "upset", "bad", "lonely"]
     ):
 
         reply = (
@@ -115,14 +99,9 @@ def chatbot():
         )
 
 
-    # ANGRY
     elif any(
         word in text
-        for word in [
-            "angry",
-            "mad",
-            "frustrated"
-        ]
+        for word in ["angry", "mad", "frustrated"]
     ):
 
         reply = (
@@ -131,14 +110,9 @@ def chatbot():
         )
 
 
-    # HELLO
     elif any(
         word in text
-        for word in [
-            "hello",
-            "hi",
-            "hey"
-        ]
+        for word in ["hello", "hi", "hey"]
     ):
 
         reply = (
@@ -148,7 +122,6 @@ def chatbot():
         )
 
 
-    # DEFAULT
     else:
 
         reply = (
@@ -161,15 +134,11 @@ def chatbot():
 
 
 # ==============================
-# AUDIO UPLOAD + EMOTION ANALYSIS
+# AUDIO UPLOAD + AI ANALYSIS
 # ==============================
 
 @app.route("/upload", methods=["POST"])
 def upload():
-
-    # ==============================
-    # CHECK AUDIO FILE
-    # ==============================
 
     if "audio" not in request.files:
 
@@ -178,10 +147,6 @@ def upload():
 
     audio = request.files["audio"]
 
-
-    # ==============================
-    # CHECK FILE NAME
-    # ==============================
 
     if audio.filename == "":
 
@@ -203,7 +168,7 @@ def upload():
 
 
     # ==============================
-    # LOAD AI MODEL + PREDICTION
+    # AI PREDICTION
     # ==============================
 
     try:
@@ -224,18 +189,15 @@ def upload():
     emotion_names = {
 
         "neu": "Neutral",
-
         "hap": "Happy",
-
         "ang": "Angry",
-
         "sad": "Sad"
 
     }
 
 
     # ==============================
-    # CREATE EMOTION RESULTS
+    # EMOTION RESULTS
     # ==============================
 
     emotion_html = ""
@@ -266,7 +228,6 @@ def upload():
 
                 </span>
 
-
                 <span class="emotion-score">
 
                     {score:.2f}%
@@ -296,12 +257,10 @@ def upload():
 
     top_label = results[0]["label"]
 
-
     top_emotion = emotion_names.get(
         top_label,
         top_label
     )
-
 
     top_score = results[0]["score"] * 100
 
@@ -320,27 +279,19 @@ def upload():
 
     <title>Emotion Analysis</title>
 
-
     <meta
         name="viewport"
         content="width=device-width, initial-scale=1.0">
 
-
     <style>
 
         * {{
-
             box-sizing: border-box;
-
         }}
 
-
         body {{
-
             margin: 0;
-
             padding: 20px;
-
             font-family: Arial, sans-serif;
 
             background:
@@ -351,157 +302,90 @@ def upload():
                 );
 
             min-height: 100vh;
-
         }}
-
 
         .container {{
-
             max-width: 700px;
-
             margin: 40px auto;
-
         }}
 
-
         .result-box {{
-
             background: white;
-
             padding: 35px;
-
             border-radius: 25px;
 
             box-shadow:
                 0 15px 40px
                 rgba(0,0,0,0.12);
-
         }}
-
 
         h1 {{
-
             text-align: center;
-
             color: #312e81;
-
             margin-bottom: 10px;
-
         }}
-
 
         .audio-name {{
-
             text-align: center;
-
             color: #64748b;
-
             margin-bottom: 30px;
-
         }}
-
 
         .main-result {{
-
             text-align: center;
-
             background: #eef2ff;
-
             padding: 30px;
-
             border-radius: 20px;
-
             margin-bottom: 30px;
-
         }}
-
 
         .main-emotion {{
-
             font-size: 42px;
-
             font-weight: bold;
-
             color: #4f46e5;
-
         }}
-
 
         .main-score {{
-
             font-size: 20px;
-
             color: #475569;
-
             margin-top: 10px;
-
         }}
-
 
         h2 {{
-
             color: #1e293b;
-
             margin-bottom: 20px;
-
         }}
-
 
         .emotion-card {{
-
             margin-bottom: 22px;
-
         }}
-
 
         .emotion-header {{
-
             display: flex;
-
             justify-content: space-between;
-
             margin-bottom: 8px;
-
         }}
-
 
         .emotion-name {{
-
             font-size: 18px;
-
             font-weight: bold;
-
             color: #1e293b;
-
         }}
-
 
         .emotion-score {{
-
             color: #475569;
-
             font-weight: bold;
-
         }}
-
 
         .bar {{
-
             width: 100%;
-
             height: 15px;
-
             background: #e2e8f0;
-
             border-radius: 20px;
-
             overflow: hidden;
-
         }}
 
-
         .fill {{
-
             height: 100%;
 
             background:
@@ -512,74 +396,46 @@ def upload():
                 );
 
             border-radius: 20px;
-
         }}
 
-
         .back {{
-
             display: block;
-
             width: fit-content;
-
             margin: 35px auto 0;
-
             padding: 14px 25px;
 
             background: #4f46e5;
-
             color: white;
 
             text-decoration: none;
-
             border-radius: 12px;
-
             font-weight: bold;
-
         }}
-
 
         .back:hover {{
-
             background: #3730a3;
-
         }}
-
 
         @media (max-width: 600px) {{
 
             body {{
-
                 padding: 12px;
-
             }}
-
 
             .container {{
-
                 margin: 15px auto;
-
             }}
-
 
             .result-box {{
-
                 padding: 22px;
-
             }}
-
 
             h1 {{
-
                 font-size: 27px;
-
             }}
 
-
             .main-emotion {{
-
                 font-size: 34px;
-
             }}
 
         }}
@@ -595,11 +451,8 @@ def upload():
 
         <div class="result-box">
 
-
             <h1>
-
                 🎙️ Emotion Analysis
-
             </h1>
 
 
@@ -608,9 +461,7 @@ def upload():
                 Audio:
 
                 <strong>
-
                     {audio.filename}
-
                 </strong>
 
             </div>
@@ -628,7 +479,6 @@ def upload():
                 <div class="main-score">
 
                     Confidence:
-
                     {top_score:.2f}%
 
                 </div>
@@ -637,9 +487,7 @@ def upload():
 
 
             <h2>
-
                 Emotion Scores
-
             </h2>
 
 
