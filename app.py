@@ -1,6 +1,9 @@
 from flask import Flask, render_template, request
 import os
 from transformers import pipeline
+import torch
+
+torch.set_num_threads(1)
 
 app = Flask(__name__)
 
@@ -15,14 +18,24 @@ os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 # AI EMOTION MODEL
 # ==============================
 
-print("Loading emotion model...")
+print("Emotion model will load when needed...")
 
-emotion_classifier = pipeline(
-    "audio-classification",
-    model="superb/wav2vec2-base-superb-er"
-)
+emotion_classifier = None
 
-print("Emotion model loaded successfully!")
+def get_emotion_classifier():
+    global emotion_classifier
+
+    if emotion_classifier is None:
+        print("Loading emotion model...")
+
+        emotion_classifier = pipeline(
+            "audio-classification",
+            model="superb/wav2vec2-base-superb-er"
+        )
+
+        print("Emotion model loaded successfully!")
+
+    return emotion_classifier
 
 
 # ==============================
@@ -76,7 +89,7 @@ def upload():
     # ==============================
 
     try:
-        results = emotion_classifier(file_path)
+        results = get_emotion_classifier()(file_path)
 
     except Exception as e:
         return f"Error analyzing audio: {str(e)}"
