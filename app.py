@@ -41,6 +41,37 @@ def home():
 # ANALYSIS PAGE
 # ==============================
 
+# ==============================
+# EMOTION-AWARE CHATBOT
+# ==============================
+
+@app.route("/chatbot", methods=["POST"])
+def chatbot():
+
+    message = request.form.get("message", "").strip()
+
+    if not message:
+        return "Please enter a message."
+
+    text = message.lower()
+
+    if any(word in text for word in ["happy", "good", "great", "excited"]):
+        reply = "That's nice to hear! 😊 What made you feel this way?"
+
+    elif any(word in text for word in ["sad", "upset", "bad", "lonely"]):
+        reply = "I'm sorry you're having a difficult moment. You can talk about what's bothering you."
+
+    elif any(word in text for word in ["angry", "mad", "frustrated"]):
+        reply = "It sounds like something is frustrating you. Taking a short pause and talking about it may help."
+
+    elif any(word in text for word in ["hello", "hi", "hey"]):
+        reply = "Hello! 👋 I'm your EmotionAI assistant. How are you feeling today?"
+
+    else:
+        reply = "I understand. Tell me a little more about how you're feeling."
+
+    return reply 
+
 @app.route("/analysis")
 def analysis():
     return render_template("analysis.html")
