@@ -18,24 +18,14 @@ os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 # AI EMOTION MODEL
 # ==============================
 
-print("Emotion model will load when needed...")
+print("Loading emotion model...")
 
-emotion_classifier = None
+emotion_classifier = pipeline(
+    "audio-classification",
+    model="superb/wav2vec2-base-superb-er"
+)
 
-def get_emotion_classifier():
-    global emotion_classifier
-
-    if emotion_classifier is None:
-        print("Loading emotion model...")
-
-        emotion_classifier = pipeline(
-            "audio-classification",
-            model="superb/wav2vec2-base-superb-er"
-        )
-
-        print("Emotion model loaded successfully!")
-
-    return emotion_classifier
+print("Emotion model loaded successfully!")
 
 
 # ==============================
@@ -89,7 +79,7 @@ def upload():
     # ==============================
 
     try:
-        results = get_emotion_classifier()(file_path)
+        results = emotion_classifier(file_path)
 
     except Exception as e:
         return f"Error analyzing audio: {str(e)}"
@@ -481,11 +471,9 @@ def upload():
 # RUN FLASK WITH HTTPS
 # ==============================
 
-if __name__ == "__main__":
-
+iif __name__ == "__main__":
+    import os
     app.run(
         host="0.0.0.0",
-        port=5000,
-        debug=True,
-        ssl_context="adhoc"
+        port=int(os.environ.get("PORT", 5000))
     )
