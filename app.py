@@ -3,11 +3,15 @@ import os
 from transformers import pipeline
 import torch
 
+# Reduce CPU thread usage
 torch.set_num_threads(1)
 
 app = Flask(__name__)
 
-# Upload folder
+# ==============================
+# UPLOAD FOLDER
+# ==============================
+
 UPLOAD_FOLDER = "uploads"
 app.config["UPLOAD_FOLDER"] = UPLOAD_FOLDER
 
@@ -18,14 +22,30 @@ os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 # AI EMOTION MODEL
 # ==============================
 
-print("Loading emotion model...")
+# Model is NOT loaded when the server starts.
+# It will load only when audio analysis is requested.
 
-emotion_classifier = pipeline(
-    "audio-classification",
-    model="superb/wav2vec2-base-superb-er"
-)
+print("Emotion model will load when needed...")
 
-print("Emotion model loaded successfully!")
+emotion_classifier = None
+
+
+def get_emotion_classifier():
+
+    global emotion_classifier
+
+    if emotion_classifier is None:
+
+        print("Loading emotion model...")
+
+        emotion_classifier = pipeline(
+            "audio-classification",
+            model="superb/wav2vec2-base-superb-er"
+        )
+
+        print("Emotion model loaded successfully!")
+
+    return emotion_classifier
 
 
 # ==============================
@@ -34,12 +54,19 @@ print("Emotion model loaded successfully!")
 
 @app.route("/")
 def home():
+
     return render_template("index.html")
 
 
 # ==============================
 # ANALYSIS PAGE
 # ==============================
+
+@app.route("/analysis")
+def analysis():
+
+    return render_template("analysis.html")
+
 
 # ==============================
 # EMOTION-AWARE CHATBOT
@@ -51,30 +78,89 @@ def chatbot():
     message = request.form.get("message", "").strip()
 
     if not message:
+
         return "Please enter a message."
 
     text = message.lower()
 
-    if any(word in text for word in ["happy", "good", "great", "excited"]):
-        reply = "That's nice to hear! 😊 What made you feel this way?"
 
-    elif any(word in text for word in ["sad", "upset", "bad", "lonely"]):
-        reply = "I'm sorry you're having a difficult moment. You can talk about what's bothering you."
+    # HAPPY
+    if any(
+        word in text
+        for word in [
+            "happy",
+            "good",
+            "great",
+            "excited"
+        ]
+    ):
 
-    elif any(word in text for word in ["angry", "mad", "frustrated"]):
-        reply = "It sounds like something is frustrating you. Taking a short pause and talking about it may help."
+        reply = (
+            "That's nice to hear! 😊 "
+            "What made you feel this way?"
+        )
 
-    elif any(word in text for word in ["hello", "hi", "hey"]):
-        reply = "Hello! 👋 I'm your EmotionAI assistant. How are you feeling today?"
 
+    # SAD
+    elif any(
+        word in text
+        for word in [
+            "sad",
+            "upset",
+            "bad",
+            "lonely"
+        ]
+    ):
+
+        reply = (
+            "I'm sorry you're having a difficult moment. "
+            "You can talk about what's bothering you."
+        )
+
+
+    # ANGRY
+    elif any(
+        word in text
+        for word in [
+            "angry",
+            "mad",
+            "frustrated"
+        ]
+    ):
+
+        reply = (
+            "It sounds like something is frustrating you. "
+            "Taking a short pause and talking about it may help."
+        )
+
+
+    # HELLO
+    elif any(
+        word in text
+        for word in [
+            "hello",
+            "hi",
+            "hey"
+        ]
+    ):
+
+        reply = (
+            "Hello! 👋 "
+            "I'm your EmotionAI assistant. "
+            "How are you feeling today?"
+        )
+
+
+    # DEFAULT
     else:
-        reply = "I understand. Tell me a little more about how you're feeling."
 
-    return reply 
+        reply = (
+            "I understand. "
+            "Tell me a little more about how you're feeling."
+        )
 
-@app.route("/analysis")
-def analysis():
-    return render_template("analysis.html")
+
+    return reply
 
 
 # ==============================
@@ -84,17 +170,31 @@ def analysis():
 @app.route("/upload", methods=["POST"])
 def upload():
 
-    # Check audio file
+    # ==============================
+    # CHECK AUDIO FILE
+    # ==============================
+
     if "audio" not in request.files:
+
         return "No audio file selected"
+
 
     audio = request.files["audio"]
 
-    # Check filename
+
+    # ==============================
+    # CHECK FILE NAME
+    # ==============================
+
     if audio.filename == "":
+
         return "No audio file selected"
 
-    # Save audio
+
+    # ==============================
+    # SAVE AUDIO
+    # ==============================
+
     file_path = os.path.join(
         app.config["UPLOAD_FOLDER"],
         audio.filename
@@ -106,25 +206,34 @@ def upload():
 
 
     # ==============================
-    # AI PREDICTION
+    # LOAD AI MODEL + PREDICTION
     # ==============================
 
     try:
-        results = emotion_classifier(file_path)
+
+        classifier = get_emotion_classifier()
+
+        results = classifier(file_path)
 
     except Exception as e:
+
         return f"Error analyzing audio: {str(e)}"
 
 
     # ==============================
-    # EMOTION NAME
+    # EMOTION NAMES
     # ==============================
 
     emotion_names = {
+
         "neu": "Neutral",
+
         "hap": "Happy",
+
         "ang": "Angry",
+
         "sad": "Sad"
+
     }
 
 
@@ -134,30 +243,41 @@ def upload():
 
     emotion_html = ""
 
+
     for result in results:
 
         label = result["label"]
+
         score = result["score"] * 100
+
 
         emotion = emotion_names.get(
             label,
             label
         )
 
+
         emotion_html += f"""
+
         <div class="emotion-card">
 
             <div class="emotion-header">
 
                 <span class="emotion-name">
+
                     {emotion}
+
                 </span>
 
+
                 <span class="emotion-score">
+
                     {score:.2f}%
+
                 </span>
 
             </div>
+
 
             <div class="bar">
 
@@ -169,6 +289,7 @@ def upload():
             </div>
 
         </div>
+
         """
 
 
@@ -178,10 +299,12 @@ def upload():
 
     top_label = results[0]["label"]
 
+
     top_emotion = emotion_names.get(
         top_label,
         top_label
     )
+
 
     top_score = results[0]["score"] * 100
 
@@ -191,6 +314,7 @@ def upload():
     # ==============================
 
     return f"""
+
 <!DOCTYPE html>
 
 <html>
@@ -199,14 +323,20 @@ def upload():
 
     <title>Emotion Analysis</title>
 
-    <meta name="viewport"
-          content="width=device-width, initial-scale=1.0">
+
+    <meta
+        name="viewport"
+        content="width=device-width, initial-scale=1.0">
+
 
     <style>
 
         * {{
+
             box-sizing: border-box;
+
         }}
+
 
         body {{
 
@@ -224,6 +354,7 @@ def upload():
                 );
 
             min-height: 100vh;
+
         }}
 
 
@@ -232,6 +363,7 @@ def upload():
             max-width: 700px;
 
             margin: 40px auto;
+
         }}
 
 
@@ -246,6 +378,7 @@ def upload():
             box-shadow:
                 0 15px 40px
                 rgba(0,0,0,0.12);
+
         }}
 
 
@@ -256,6 +389,7 @@ def upload():
             color: #312e81;
 
             margin-bottom: 10px;
+
         }}
 
 
@@ -266,6 +400,7 @@ def upload():
             color: #64748b;
 
             margin-bottom: 30px;
+
         }}
 
 
@@ -280,6 +415,7 @@ def upload():
             border-radius: 20px;
 
             margin-bottom: 30px;
+
         }}
 
 
@@ -290,6 +426,7 @@ def upload():
             font-weight: bold;
 
             color: #4f46e5;
+
         }}
 
 
@@ -300,6 +437,7 @@ def upload():
             color: #475569;
 
             margin-top: 10px;
+
         }}
 
 
@@ -308,12 +446,14 @@ def upload():
             color: #1e293b;
 
             margin-bottom: 20px;
+
         }}
 
 
         .emotion-card {{
 
             margin-bottom: 22px;
+
         }}
 
 
@@ -321,10 +461,10 @@ def upload():
 
             display: flex;
 
-            justify-content:
-                space-between;
+            justify-content: space-between;
 
             margin-bottom: 8px;
+
         }}
 
 
@@ -335,6 +475,7 @@ def upload():
             font-weight: bold;
 
             color: #1e293b;
+
         }}
 
 
@@ -343,6 +484,7 @@ def upload():
             color: #475569;
 
             font-weight: bold;
+
         }}
 
 
@@ -357,6 +499,7 @@ def upload():
             border-radius: 20px;
 
             overflow: hidden;
+
         }}
 
 
@@ -372,6 +515,7 @@ def upload():
                 );
 
             border-radius: 20px;
+
         }}
 
 
@@ -394,35 +538,51 @@ def upload():
             border-radius: 12px;
 
             font-weight: bold;
+
         }}
 
 
         .back:hover {{
 
             background: #3730a3;
+
         }}
 
 
         @media (max-width: 600px) {{
 
             body {{
+
                 padding: 12px;
+
             }}
+
 
             .container {{
+
                 margin: 15px auto;
+
             }}
+
 
             .result-box {{
+
                 padding: 22px;
+
             }}
+
 
             h1 {{
+
                 font-size: 27px;
+
             }}
 
+
             .main-emotion {{
+
                 font-size: 34px;
+
             }}
 
         }}
@@ -438,16 +598,22 @@ def upload():
 
         <div class="result-box">
 
+
             <h1>
+
                 🎙️ Emotion Analysis
+
             </h1>
 
 
             <div class="audio-name">
 
                 Audio:
+
                 <strong>
+
                     {audio.filename}
+
                 </strong>
 
             </div>
@@ -465,6 +631,7 @@ def upload():
                 <div class="main-score">
 
                     Confidence:
+
                     {top_score:.2f}%
 
                 </div>
@@ -473,7 +640,9 @@ def upload():
 
 
             <h2>
+
                 Emotion Scores
+
             </h2>
 
 
@@ -488,6 +657,7 @@ def upload():
 
             </a>
 
+
         </div>
 
     </div>
@@ -495,16 +665,25 @@ def upload():
 </body>
 
 </html>
+
 """
 
 
 # ==============================
-# RUN FLASK WITH HTTPS
+# RUN FLASK
 # ==============================
 
 if __name__ == "__main__":
-    import os
+
     app.run(
+
         host="0.0.0.0",
-        port=int(os.environ.get("PORT", 5000))
+
+        port=int(
+            os.environ.get(
+                "PORT",
+                5000
+            )
+        )
+
     )
