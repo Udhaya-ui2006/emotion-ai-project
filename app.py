@@ -471,7 +471,7 @@ def upload():
 # RUN FLASK WITH HTTPS
 # ==============================
 
-iif __name__ == "__main__":
+if __name__ == "__main__":
     import os
     app.run(
         host="0.0.0.0",
