@@ -1,10 +1,7 @@
 from flask import Flask, render_template, request
 import os
-from transformers import pipeline
-import torch
 
 # Reduce CPU thread usage
-torch.set_num_threads(1)
 
 app = Flask(__name__)
 
