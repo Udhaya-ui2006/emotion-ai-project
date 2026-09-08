@@ -79,14 +79,14 @@
         .subtitle {
             color: #cbd5e1;
             line-height: 1.6;
-            margin-bottom: 35px;
+            margin-bottom: 30px;
         }
 
         .upload-area {
             border: 2px dashed #8b5cf6;
             border-radius: 20px;
-            padding: 35px 20px;
-            margin-bottom: 25px;
+            padding: 30px 20px;
+            margin-bottom: 20px;
             background: rgba(124, 58, 237, 0.08);
         }
 
@@ -103,6 +103,43 @@
         .upload-area p {
             color: #94a3b8;
             margin-bottom: 20px;
+        }
+
+        .record-btn {
+            width: 100%;
+            padding: 15px;
+            border: none;
+            border-radius: 12px;
+            background: #dc2626;
+            color: white;
+            font-size: 17px;
+            font-weight: bold;
+            cursor: pointer;
+            margin-bottom: 12px;
+        }
+
+        .record-btn:hover {
+            background: #b91c1c;
+        }
+
+        .record-btn.stop {
+            background: #475569;
+        }
+
+        .record-btn.stop:hover {
+            background: #334155;
+        }
+
+        .status {
+            min-height: 25px;
+            margin: 12px 0;
+            color: #c4b5fd;
+            font-size: 14px;
+        }
+
+        audio {
+            width: 100%;
+            margin: 10px 0 20px 0;
         }
 
         input[type="file"] {
@@ -150,10 +187,27 @@
             cursor: not-allowed;
         }
 
+        .divider {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin: 25px 0;
+            color: #64748b;
+        }
+
+        .divider::before,
+        .divider::after {
+            content: "";
+            flex: 1;
+            height: 1px;
+            background: rgba(255,255,255,0.15);
+        }
+
         .info {
             margin-top: 25px;
             color: #94a3b8;
             font-size: 14px;
+            line-height: 1.5;
         }
 
         @media (max-width: 600px) {
@@ -166,13 +220,19 @@
                 font-size: 28px;
             }
 
+            .mic {
+                font-size: 55px;
+            }
+
         }
 
     </style>
 
 </head>
 
+
 <body>
+
 
     <nav class="navbar">
 
@@ -194,19 +254,77 @@
             <h1>🎙️ Emotion Analysis</h1>
 
             <p class="subtitle">
-                Upload your voice recording and our AI
-                will analyze the emotions in your speech.
+                Record your voice or upload an audio file.
+                Our AI will analyze the emotions in your speech.
             </p>
 
 
-            <form action="/upload"
-                  method="POST"
-                  enctype="multipart/form-data">
+            <!-- ========================= -->
+            <!-- MICROPHONE RECORDING -->
+            <!-- ========================= -->
+
+            <div class="upload-area">
+
+                <div class="mic">
+                    🎤
+                </div>
+
+                <h2>
+                    Record Your Voice
+                </h2>
+
+                <p>
+                    Click the button and speak for a few seconds.
+                </p>
+
+
+                <button
+                    type="button"
+                    id="recordBtn"
+                    class="record-btn">
+
+                    🎙️ Start Recording
+
+                </button>
+
+
+                <div
+                    id="status"
+                    class="status">
+
+                </div>
+
+
+                <audio
+                    id="audioPreview"
+                    controls
+                    style="display:none;">
+
+                </audio>
+
+            </div>
+
+
+            <!-- ========================= -->
+            <!-- UPLOAD AUDIO -->
+            <!-- ========================= -->
+
+            <div class="divider">
+                OR
+            </div>
+
+
+            <form
+                id="uploadForm"
+                action="/upload"
+                method="POST"
+                enctype="multipart/form-data">
+
 
                 <div class="upload-area">
 
                     <div class="mic">
-                        🎤
+                        📁
                     </div>
 
                     <h2>
@@ -214,24 +332,29 @@
                     </h2>
 
                     <p>
-                        Supported formats: WAV, MP3, OGG
+                        Supported formats: WAV, MP3, OGG, WebM
                     </p>
 
 
-                    <label for="audio"
-                           class="choose-btn">
+                    <label
+                        for="audio"
+                        class="choose-btn">
+
                         📁 Choose Audio
+
                     </label>
+
 
                     <input
                         type="file"
                         id="audio"
                         name="audio"
                         accept="audio/*"
-                        required
                     >
 
+
                     <div id="file-name">
+
                     </div>
 
                 </div>
@@ -240,19 +363,21 @@
                 <button
                     type="submit"
                     class="analyze-btn"
-                    id="analyzeBtn">
+                    id="analyzeBtn"
+                    disabled>
 
                     🔍 Analyze Emotion
 
                 </button>
+
 
             </form>
 
 
             <div class="info">
 
-                🔒 Your audio is analyzed locally
-                by the AI emotion model.
+                🔒 Your audio is processed by the
+                AI emotion model for analysis.
 
             </div>
 
@@ -263,6 +388,15 @@
 
     <script>
 
+        const recordBtn =
+            document.getElementById("recordBtn");
+
+        const audioPreview =
+            document.getElementById("audioPreview");
+
+        const statusText =
+            document.getElementById("status");
+
         const audioInput =
             document.getElementById("audio");
 
@@ -272,6 +406,180 @@
         const analyzeBtn =
             document.getElementById("analyzeBtn");
 
+        const uploadForm =
+            document.getElementById("uploadForm");
+
+
+        let mediaRecorder = null;
+
+        let audioChunks = [];
+
+        let recordedBlob = null;
+
+
+        // ==========================================
+        // START / STOP RECORDING
+        // ==========================================
+
+        recordBtn.addEventListener(
+            "click",
+            async function() {
+
+                // START RECORDING
+                if (!mediaRecorder ||
+                    mediaRecorder.state === "inactive") {
+
+                    try {
+
+                        const stream =
+                            await navigator.mediaDevices.getUserMedia({
+                                audio: true
+                            });
+
+
+                        audioChunks = [];
+
+
+                        let options = {};
+
+
+                        // Prefer WebM/Opus
+                        if (
+                            MediaRecorder.isTypeSupported(
+                                "audio/webm;codecs=opus"
+                            )
+                        ) {
+
+                            options.mimeType =
+                                "audio/webm;codecs=opus";
+
+                        }
+
+
+                        mediaRecorder =
+                            new MediaRecorder(
+                                stream,
+                                options
+                            );
+
+
+                        mediaRecorder.ondataavailable =
+                            function(event) {
+
+                                if (event.data.size > 0) {
+
+                                    audioChunks.push(
+                                        event.data
+                                    );
+
+                                }
+
+                            };
+
+
+                        mediaRecorder.onstop =
+                            function() {
+
+                                recordedBlob =
+                                    new Blob(
+                                        audioChunks,
+                                        {
+                                            type:
+                                                mediaRecorder.mimeType ||
+                                                "audio/webm"
+                                        }
+                                    );
+
+
+                                const audioURL =
+                                    URL.createObjectURL(
+                                        recordedBlob
+                                    );
+
+
+                                audioPreview.src =
+                                    audioURL;
+
+                                audioPreview.style.display =
+                                    "block";
+
+
+                                analyzeBtn.disabled =
+                                    false;
+
+
+                                statusText.textContent =
+                                    "✅ Recording ready. Click Analyze Emotion.";
+
+
+                                // Stop microphone
+                                stream
+                                    .getTracks()
+                                    .forEach(
+                                        track =>
+                                            track.stop()
+                                    );
+
+                            };
+
+
+                        mediaRecorder.start();
+
+
+                        recordBtn.textContent =
+                            "⏹️ Stop Recording";
+
+
+                        recordBtn.classList.add(
+                            "stop"
+                        );
+
+
+                        statusText.textContent =
+                            "🔴 Recording... Speak now.";
+
+
+                        analyzeBtn.disabled =
+                            true;
+
+
+                    }
+
+                    catch (error) {
+
+                        console.error(error);
+
+
+                        statusText.textContent =
+                            "❌ Microphone permission denied or unavailable.";
+
+                    }
+
+                }
+
+                // STOP RECORDING
+                else {
+
+                    mediaRecorder.stop();
+
+
+                    recordBtn.textContent =
+                        "🎙️ Start Recording";
+
+
+                    recordBtn.classList.remove(
+                        "stop"
+                    );
+
+                }
+
+            }
+        );
+
+
+        // ==========================================
+        // FILE SELECTION
+        // ==========================================
 
         audioInput.addEventListener(
             "change",
@@ -283,7 +591,142 @@
                         "Selected: " +
                         this.files[0].name;
 
-                    analyzeBtn.disabled = false;
+
+                    recordedBlob = null;
+
+
+                    audioPreview.style.display =
+                        "none";
+
+
+                    analyzeBtn.disabled =
+                        false;
+
+
+                    statusText.textContent =
+                        "Audio file selected.";
+
+                }
+
+            }
+        );
+
+
+        // ==========================================
+        // ANALYZE
+        // ==========================================
+
+        uploadForm.addEventListener(
+            "submit",
+            async function(event) {
+
+                event.preventDefault();
+
+
+                analyzeBtn.disabled =
+                    true;
+
+
+                analyzeBtn.textContent =
+                    "⏳ Analyzing...";
+
+
+                statusText.textContent =
+                    "🤖 AI is analyzing your voice...";
+
+
+                const formData =
+                    new FormData();
+
+
+                // If recorded audio exists
+                if (recordedBlob) {
+
+                    formData.append(
+                        "audio",
+                        recordedBlob,
+                        "recorded_voice.webm"
+                    );
+
+                }
+
+                // Otherwise uploaded file
+                else if (audioInput.files.length > 0) {
+
+                    formData.append(
+                        "audio",
+                        audioInput.files[0]
+                    );
+
+                }
+
+                else {
+
+                    statusText.textContent =
+                        "❌ Please record or select an audio file.";
+
+                    analyzeBtn.disabled =
+                        false;
+
+                    analyzeBtn.textContent =
+                        "🔍 Analyze Emotion";
+
+                    return;
+
+                }
+
+
+                try {
+
+                    const response =
+                        await fetch(
+                            "/upload",
+                            {
+                                method: "POST",
+                                body: formData
+                            }
+                        );
+
+
+                    const result =
+                        await response.text();
+
+
+                    if (!response.ok) {
+
+                        throw new Error(
+                            "Server error: " +
+                            response.status
+                        );
+
+                    }
+
+
+                    // Show Flask result page
+                    document.open();
+
+                    document.write(result);
+
+                    document.close();
+
+                }
+
+                catch (error) {
+
+                    console.error(error);
+
+
+                    statusText.textContent =
+                        "❌ Error: " +
+                        error.message;
+
+
+                    analyzeBtn.disabled =
+                        false;
+
+
+                    analyzeBtn.textContent =
+                        "🔍 Analyze Emotion";
 
                 }
 
