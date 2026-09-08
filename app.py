@@ -1,6 +1,10 @@
 from flask import Flask, render_template, request
-from transformers import pipeline
 import os
+import json
+import numpy as np
+import librosa
+import onnxruntime as ort
+from huggingface_hub import hf_hub_download
 
 app = Flask(__name__)
 
@@ -18,27 +22,49 @@ os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 # AI EMOTION MODEL
 # ==============================
 
-print("Emotion model will load when needed...")
+MODEL_REPO = "onnx-community/Speech-Emotion-Classification-ONNX"
+MODEL_FILE = "onnx/model_int8.onnx"
 
-emotion_classifier = None
+emotion_session = None
 
 
-def get_emotion_classifier():
+def get_emotion_session():
 
-    global emotion_classifier
+    global emotion_session
 
-    if emotion_classifier is None:
+    if emotion_session is None:
 
-        print("Loading emotion model...")
+        print("Downloading/loading ONNX emotion model...")
 
-        emotion_classifier = pipeline(
-            "audio-classification",
-            model="superb/wav2vec2-base-superb-er"
+        model_path = hf_hub_download(
+            repo_id=MODEL_REPO,
+            filename=MODEL_FILE
         )
 
-        print("Emotion model loaded successfully!")
+        emotion_session = ort.InferenceSession(
+            model_path,
+            providers=["CPUExecutionProvider"]
+        )
 
-    return emotion_classifier
+        print("Emotion ONNX model loaded successfully!")
+
+    return emotion_session
+
+
+# ==============================
+# EMOTION LABELS
+# ==============================
+
+emotion_names = {
+    "ANG": "Angry",
+    "CAL": "Calm",
+    "DIS": "Disgust",
+    "FEA": "Fear",
+    "HAP": "Happy",
+    "NEU": "Neutral",
+    "SAD": "Sad",
+    "SUR": "Surprised"
+}
 
 
 # ==============================
@@ -71,21 +97,13 @@ def chatbot():
     message = request.form.get("message", "").strip()
 
     if not message:
-
         return "Please enter a message."
 
     text = message.lower()
 
-
-    # HAPPY
     if any(
         word in text
-        for word in [
-            "happy",
-            "good",
-            "great",
-            "excited"
-        ]
+        for word in ["happy", "good", "great", "excited"]
     ):
 
         reply = (
@@ -93,16 +111,9 @@ def chatbot():
             "What made you feel this way?"
         )
 
-
-    # SAD
     elif any(
         word in text
-        for word in [
-            "sad",
-            "upset",
-            "bad",
-            "lonely"
-        ]
+        for word in ["sad", "upset", "bad", "lonely"]
     ):
 
         reply = (
@@ -110,15 +121,9 @@ def chatbot():
             "You can talk about what's bothering you."
         )
 
-
-    # ANGRY
     elif any(
         word in text
-        for word in [
-            "angry",
-            "mad",
-            "frustrated"
-        ]
+        for word in ["angry", "mad", "frustrated"]
     ):
 
         reply = (
@@ -126,15 +131,9 @@ def chatbot():
             "Taking a short pause and talking about it may help."
         )
 
-
-    # HELLO
     elif any(
         word in text
-        for word in [
-            "hello",
-            "hi",
-            "hey"
-        ]
+        for word in ["hello", "hi", "hey"]
     ):
 
         reply = (
@@ -143,8 +142,6 @@ def chatbot():
             "How are you feeling today?"
         )
 
-
-    # DEFAULT
     else:
 
         reply = (
@@ -152,8 +149,96 @@ def chatbot():
             "Tell me a little more about how you're feeling."
         )
 
-
     return reply
+
+
+# ==============================
+# AUDIO PREPROCESSING
+# ==============================
+
+def prepare_audio(file_path):
+
+    print("Loading audio...")
+
+    audio, sample_rate = librosa.load(
+        file_path,
+        sr=16000,
+        mono=True
+    )
+
+    audio = audio.astype(np.float32)
+
+    # Avoid extremely long audio
+    max_samples = 16000 * 10
+
+    if len(audio) > max_samples:
+        audio = audio[:max_samples]
+
+    if len(audio) == 0:
+        raise ValueError("Audio file contains no usable audio.")
+
+    return audio
+
+
+# ==============================
+# AI PREDICTION
+# ==============================
+
+def predict_emotion(file_path):
+
+    session = get_emotion_session()
+
+    audio = prepare_audio(file_path)
+
+    input_name = session.get_inputs()[0].name
+
+    input_data = np.expand_dims(audio, axis=0)
+
+    outputs = session.run(
+        None,
+        {
+            input_name: input_data
+        }
+    )
+
+    logits = np.asarray(outputs[0])
+
+    if logits.ndim > 1:
+        logits = logits[0]
+
+    # Softmax
+    logits = logits - np.max(logits)
+
+    probabilities = np.exp(logits)
+
+    probabilities = probabilities / np.sum(probabilities)
+
+    labels = [
+        "ANG",
+        "CAL",
+        "DIS",
+        "FEA",
+        "HAP",
+        "NEU",
+        "SAD",
+        "SUR"
+    ]
+
+    results = []
+
+    for label, probability in zip(labels, probabilities):
+
+        results.append({
+            "label": label,
+            "score": float(probability)
+        })
+
+    results.sort(
+        key=lambda x: x["score"],
+        reverse=True
+    )
+
+    return results
 
 
 # ==============================
@@ -163,30 +248,13 @@ def chatbot():
 @app.route("/upload", methods=["POST"])
 def upload():
 
-    # ==============================
-    # CHECK AUDIO FILE
-    # ==============================
-
     if "audio" not in request.files:
-
         return "No audio file selected"
-
 
     audio = request.files["audio"]
 
-
-    # ==============================
-    # CHECK FILE NAME
-    # ==============================
-
     if audio.filename == "":
-
         return "No audio file selected"
-
-
-    # ==============================
-    # SAVE AUDIO
-    # ==============================
 
     filename = audio.filename
 
@@ -199,16 +267,9 @@ def upload():
 
     print("Audio saved:", file_path)
 
-
-    # ==============================
-    # AI PREDICTION
-    # ==============================
-
     try:
 
-        classifier = get_emotion_classifier()
-
-        results = classifier(file_path)
+        results = predict_emotion(file_path)
 
     except Exception as e:
 
@@ -216,30 +277,11 @@ def upload():
 
         return f"Error analyzing audio: {str(e)}"
 
-
-    # ==============================
-    # EMOTION NAMES
-    # ==============================
-
-    emotion_names = {
-
-        "neu": "Neutral",
-
-        "hap": "Happy",
-
-        "ang": "Angry",
-
-        "sad": "Sad"
-
-    }
-
-
     # ==============================
     # EMOTION RESULTS
     # ==============================
 
     emotion_html = ""
-
 
     for result in results:
 
@@ -247,15 +289,12 @@ def upload():
 
         score = result["score"] * 100
 
-
         emotion = emotion_names.get(
             label,
             label
         )
 
-
         emotion_html += f"""
-
         <div class="emotion-card">
 
             <div class="emotion-header">
@@ -280,9 +319,7 @@ def upload():
             </div>
 
         </div>
-
         """
-
 
     # ==============================
     # TOP EMOTION
@@ -290,12 +327,10 @@ def upload():
 
     top_label = results[0]["label"]
 
-
     top_emotion = emotion_names.get(
         top_label,
         top_label
     )
-
 
     top_score = results[0]["score"] * 100
 
@@ -305,7 +340,6 @@ def upload():
     # ==============================
 
     return f"""
-
 <!DOCTYPE html>
 
 <html>
@@ -342,14 +376,12 @@ def upload():
             min-height: 100vh;
         }}
 
-
         .container {{
 
             max-width: 700px;
 
             margin: 40px auto;
         }}
-
 
         .result-box {{
 
@@ -364,7 +396,6 @@ def upload():
                 rgba(0,0,0,0.12);
         }}
 
-
         h1 {{
 
             text-align: center;
@@ -374,7 +405,6 @@ def upload():
             margin-bottom: 10px;
         }}
 
-
         .audio-name {{
 
             text-align: center;
@@ -383,7 +413,6 @@ def upload():
 
             margin-bottom: 30px;
         }}
-
 
         .main-result {{
 
@@ -398,7 +427,6 @@ def upload():
             margin-bottom: 30px;
         }}
 
-
         .main-emotion {{
 
             font-size: 42px;
@@ -407,7 +435,6 @@ def upload():
 
             color: #4f46e5;
         }}
-
 
         .main-score {{
 
@@ -418,7 +445,6 @@ def upload():
             margin-top: 10px;
         }}
 
-
         h2 {{
 
             color: #1e293b;
@@ -426,12 +452,10 @@ def upload():
             margin-bottom: 20px;
         }}
 
-
         .emotion-card {{
 
             margin-bottom: 22px;
         }}
-
 
         .emotion-header {{
 
@@ -442,7 +466,6 @@ def upload():
             margin-bottom: 8px;
         }}
 
-
         .emotion-name {{
 
             font-size: 18px;
@@ -452,14 +475,12 @@ def upload():
             color: #1e293b;
         }}
 
-
         .emotion-score {{
 
             color: #475569;
 
             font-weight: bold;
         }}
-
 
         .bar {{
 
@@ -474,7 +495,6 @@ def upload():
             overflow: hidden;
         }}
 
-
         .fill {{
 
             height: 100%;
@@ -488,7 +508,6 @@ def upload():
 
             border-radius: 20px;
         }}
-
 
         .back {{
 
@@ -511,12 +530,10 @@ def upload():
             font-weight: bold;
         }}
 
-
         .back:hover {{
 
             background: #3730a3;
         }}
-
 
         @media (max-width: 600px) {{
 
@@ -546,7 +563,6 @@ def upload():
 
 </head>
 
-
 <body>
 
     <div class="container">
@@ -556,7 +572,6 @@ def upload():
             <h1>
                 🎙️ Emotion Analysis
             </h1>
-
 
             <div class="audio-name">
 
@@ -568,33 +583,23 @@ def upload():
 
             </div>
 
-
             <div class="main-result">
 
                 <div class="main-emotion">
-
                     {top_emotion}
-
                 </div>
 
-
                 <div class="main-score">
-
-                    Confidence:
-                    {top_score:.2f}%
-
+                    Confidence: {top_score:.2f}%
                 </div>
 
             </div>
-
 
             <h2>
                 Emotion Scores
             </h2>
 
-
             {emotion_html}
-
 
             <a
                 href="/"
@@ -604,7 +609,6 @@ def upload():
 
             </a>
 
-
         </div>
 
     </div>
@@ -612,7 +616,6 @@ def upload():
 </body>
 
 </html>
-
 """
 
 
@@ -623,14 +626,11 @@ def upload():
 if __name__ == "__main__":
 
     app.run(
-
         host="0.0.0.0",
-
         port=int(
             os.environ.get(
                 "PORT",
                 5000
             )
         )
-
     )
