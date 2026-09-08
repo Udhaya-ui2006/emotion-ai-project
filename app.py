@@ -1,6 +1,6 @@
 from flask import Flask, render_template, request
 import os
-import json
+import subprocess
 import numpy as np
 import librosa
 import onnxruntime as ort
@@ -153,12 +153,83 @@ def chatbot():
 
 
 # ==============================
+# CONVERT WEBM/OTHER AUDIO TO WAV
+# ==============================
+
+def convert_to_wav(input_path):
+
+    base_name = os.path.splitext(
+        os.path.basename(input_path)
+    )[0]
+
+    output_path = os.path.join(
+        UPLOAD_FOLDER,
+        base_name + "_converted.wav"
+    )
+
+    print("Converting audio to WAV...")
+    print("Input:", input_path)
+    print("Output:", output_path)
+
+    try:
+
+        subprocess.run(
+            [
+                "ffmpeg",
+                "-y",
+                "-i",
+                input_path,
+                "-ac",
+                "1",
+                "-ar",
+                "16000",
+                "-sample_fmt",
+                "s16",
+                output_path
+            ],
+            check=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE
+        )
+
+    except FileNotFoundError:
+
+        raise RuntimeError(
+            "FFmpeg is not installed on the server."
+        )
+
+    except subprocess.CalledProcessError as e:
+
+        error_message = e.stderr.decode(
+            "utf-8",
+            errors="ignore"
+        )
+
+        print("FFmpeg Error:")
+        print(error_message)
+
+        raise RuntimeError(
+            "Unable to convert the recorded audio."
+        )
+
+    if not os.path.exists(output_path):
+
+        raise RuntimeError(
+            "WAV conversion failed."
+        )
+
+    print("WAV conversion successful!")
+
+    return output_path
+
+
+# ==============================
 # AUDIO PREPROCESSING
 # ==============================
 
 def prepare_audio(file_path):
 
-    print("Loading audio...")
+    print("Loading WAV audio...")
 
     audio, sample_rate = librosa.load(
         file_path,
@@ -168,14 +239,18 @@ def prepare_audio(file_path):
 
     audio = audio.astype(np.float32)
 
-    # Avoid extremely long audio
+    # Maximum 10 seconds
     max_samples = 16000 * 10
 
     if len(audio) > max_samples:
+
         audio = audio[:max_samples]
 
     if len(audio) == 0:
-        raise ValueError("Audio file contains no usable audio.")
+
+        raise ValueError(
+            "Audio file contains no usable audio."
+        )
 
     return audio
 
@@ -192,7 +267,12 @@ def predict_emotion(file_path):
 
     input_name = session.get_inputs()[0].name
 
-    input_data = np.expand_dims(audio, axis=0)
+    print("ONNX input name:", input_name)
+
+    input_data = np.expand_dims(
+        audio,
+        axis=0
+    )
 
     outputs = session.run(
         None,
@@ -201,9 +281,12 @@ def predict_emotion(file_path):
         }
     )
 
+    print("ONNX prediction completed.")
+
     logits = np.asarray(outputs[0])
 
     if logits.ndim > 1:
+
         logits = logits[0]
 
     # Softmax
@@ -211,7 +294,10 @@ def predict_emotion(file_path):
 
     probabilities = np.exp(logits)
 
-    probabilities = probabilities / np.sum(probabilities)
+    probabilities = (
+        probabilities /
+        np.sum(probabilities)
+    )
 
     labels = [
         "ANG",
@@ -226,12 +312,17 @@ def predict_emotion(file_path):
 
     results = []
 
-    for label, probability in zip(labels, probabilities):
+    for label, probability in zip(
+        labels,
+        probabilities
+    ):
 
-        results.append({
-            "label": label,
-            "score": float(probability)
-        })
+        results.append(
+            {
+                "label": label,
+                "score": float(probability)
+            }
+        )
 
     results.sort(
         key=lambda x: x["score"],
@@ -248,34 +339,72 @@ def predict_emotion(file_path):
 @app.route("/upload", methods=["POST"])
 def upload():
 
+    print("================================")
+    print("UPLOAD REQUEST RECEIVED")
+    print("================================")
+
     if "audio" not in request.files:
+
         return "No audio file selected"
 
     audio = request.files["audio"]
 
     if audio.filename == "":
+
         return "No audio file selected"
 
-    filename = audio.filename
+    original_filename = audio.filename
+
+    # Make safe filename
+    safe_filename = os.path.basename(
+        original_filename
+    )
 
     file_path = os.path.join(
         app.config["UPLOAD_FOLDER"],
-        filename
+        safe_filename
     )
 
     audio.save(file_path)
 
     print("Audio saved:", file_path)
 
+    converted_path = None
+
     try:
 
-        results = predict_emotion(file_path)
+        # ==================================
+        # WEBM / OGG / MP3 -> WAV
+        # ==================================
+
+        converted_path = convert_to_wav(
+            file_path
+        )
+
+        print(
+            "Converted audio:",
+            converted_path
+        )
+
+        # ==================================
+        # AI ANALYSIS
+        # ==================================
+
+        results = predict_emotion(
+            converted_path
+        )
 
     except Exception as e:
 
-        print("AI Error:", str(e))
+        print("================================")
+        print("AI ERROR")
+        print("================================")
+        print(str(e))
+        print("================================")
 
-        return f"Error analyzing audio: {str(e)}"
+        return (
+            f"Error analyzing audio: {str(e)}"
+        )
 
     # ==============================
     # EMOTION RESULTS
@@ -333,7 +462,6 @@ def upload():
     )
 
     top_score = results[0]["score"] * 100
-
 
     # ==============================
     # RESULT PAGE
@@ -538,22 +666,27 @@ def upload():
         @media (max-width: 600px) {{
 
             body {{
+
                 padding: 12px;
             }}
 
             .container {{
+
                 margin: 15px auto;
             }}
 
             .result-box {{
+
                 padding: 22px;
             }}
 
             h1 {{
+
                 font-size: 27px;
             }}
 
             .main-emotion {{
+
                 font-size: 34px;
             }}
 
@@ -578,7 +711,7 @@ def upload():
                 Audio:
 
                 <strong>
-                    {filename}
+                    {safe_filename}
                 </strong>
 
             </div>
